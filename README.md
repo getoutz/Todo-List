@@ -1,112 +1,176 @@
-# TODO List : โปรเจกต์ดึงข้อมูลจาก PLC Omron และบันทึกลง Database
+-- ========= Section 1: CREATE TABLES =========
+-- ล้างตารางเก่า (ถ้ามี) เพื่อเริ่มต้นใหม่
+DROP TABLE IF EXISTS Order_Items, Orders, Products, Categories, Customers CASCADE;
 
-โปรเจกต์นี้แบ่งออกเป็น 7 Phase หลักๆ เพื่อให้ง่ายต่อการติดตามและจัดการ
+-- 1.1 ตารางลูกค้า
+CREATE TABLE Customers (
+    customer_id SERIAL PRIMARY KEY,
+    first_name VARCHAR(100) NOT NULL,
+    last_name VARCHAR(100) NOT NULL,
+    registration_date DATE NOT NULL DEFAULT CURRENT_DATE
+);
 
----
+-- 1.2 ตารางหมวดหมู่สินค้า
+CREATE TABLE Categories (
+    category_id INT PRIMARY KEY,
+    category_name VARCHAR(255) NOT NULL UNIQUE
+);
 
-### Phase 1: การเตรียมการและศึกษาข้อมูล (Preparation & Research)
+-- 1.3 ตารางสินค้า
+CREATE TABLE Products (
+    product_id INT PRIMARY KEY,
+    product_name VARCHAR(255) NOT NULL,
+    category_id INT NOT NULL,
+    price DECIMAL(10, 2) NOT NULL CHECK (price >= 0),
+    CONSTRAINT fk_category
+        FOREIGN KEY(category_id) 
+        REFERENCES Categories(category_id)
+);
 
-- [ ] **1.1 กำหนดเป้าหมายของโปรแกรม:**
-  - [ ] ต้องการดึงข้อมูลจาก Memory Area ไหนของ PLC (เช่น DM, CIO, WR, HR)?
-  - [ ] ต้องการดึงข้อมูลอะไรบ้าง (เช่น ค่าอุณหภูมิ, สถานะมอเตอร์, จำนวนการผลิต)?
-  - [ ] จะดึงข้อมูลด้วยความถี่เท่าไหร่ (เช่น ทุกๆ 1 วินาที, 5 วินาที)?
-  - [ ] จะนำข้อมูลที่ได้ไปทำอะไรต่อ (เช่น แสดงผลบนหน้าจอ, บันทึกลงฐานข้อมูล, ส่งต่อไปยังระบบอื่น)?
-  - [ ] จะออกแบบตารางในฐานข้อมูล (Schema) อย่างไร? (เช่น มี column อะไรบ้าง, data type คืออะไร)
+-- 1.4 ตารางคำสั่งซื้อ
+CREATE TABLE Orders (
+    order_id INT PRIMARY KEY,
+    customer_id INT NOT NULL,
+    order_date DATE NOT NULL,
+    status VARCHAR(50),
+    CONSTRAINT fk_customer
+        FOREIGN KEY(customer_id) 
+        REFERENCES Customers(customer_id)
+);
 
-- [ ] **1.2 เตรียม Hardware ที่จำเป็น:**
-  - [ ] PLC Omron รุ่นที่รองรับ FINS/UDP หรือ FINS/TCP.
-  - [ ] คอมพิวเตอร์สำหรับเขียนโปรแกรม
-  - [ ] สาย LAN สำหรับเชื่อมต่อคอมพิวเตอร์กับ PLC
+-- 1.5 ตารางรายละเอียดคำสั่งซื้อ (Junction Table)
+CREATE TABLE Order_Items (
+    order_item_id SERIAL PRIMARY KEY,
+    order_id INT NOT NULL,
+    product_id INT NOT NULL,
+    quantity INT NOT NULL CHECK (quantity > 0),
+    price_per_unit DECIMAL(10, 2) NOT NULL,
+    CONSTRAINT fk_order
+        FOREIGN KEY(order_id) 
+        REFERENCES Orders(order_id),
+    CONSTRAINT fk_product
+        FOREIGN KEY(product_id) 
+        REFERENCES Products(product_id)
+);
 
-- [ ] **1.3 เตรียม Software และเครื่องมือ:**
-  - [ ] **CX-Programmer:** สำหรับตั้งค่า PLC
-  - [ ] **Programming Environment:** เลือกภาษาที่ถนัด เช่น Python, C#, Node.js
-  - [ ] **Database:** เลือกฐานข้อมูลที่เหมาะสม
-    - **SQLite:** ง่ายที่สุด เหมาะสำหรับโปรเจกต์ขนาดเล็ก ไม่ต้องติดตั้ง Server
-    - **MySQL/PostgreSQL:** เหมาะสำหรับโปรเจกต์ขนาดใหญ่ รองรับข้อมูลจำนวนมาก
-    - **InfluxDB:** เหมาะสำหรับงาน Time-series data โดยเฉพาะ
-  - [ ] **Database Management Tool:** (เช่น DBeaver, HeidiSQL, pgAdmin)
+-- ========= Section 2: INSERT DATA =========
+-- เพิ่มข้อมูลลงในตาราง
+INSERT INTO Customers (customer_id, first_name, last_name, registration_date) VALUES
+(1, 'Somchai', 'Jaidee', '2023-01-15'),
+(2, 'Somsri', 'Rakdee', '2023-02-20'),
+(3, 'Mana', 'Petch', '2023-03-10'),
+(4, 'Malee', 'Klinhom', '2024-01-05');
 
-- [ ] **1.4 ศึกษาพื้นฐาน FINS Protocol:**
-  - [ ] ทำความเข้าใจโครงสร้างของ FINS command
-  - [ ] ทำความเข้าใจการระบุตำแหน่ง Memory Address
-  - [ ] ศึกษาความแตกต่างระหว่าง FINS/TCP และ FINS/UDP
+INSERT INTO Categories (category_id, category_name) VALUES
+(101, 'Electronics'),
+(102, 'Books'),
+(103, 'Clothing'),
+(104, 'Home & Kitchen');
 
----
+INSERT INTO Products (product_id, product_name, category_id, price) VALUES
+(1, 'Laptop', 101, 35000.00),
+(2, 'Smartphone', 101, 22000.00),
+(3, 'SQL Guide', 102, 750.00),
+(4, 'T-Shirt', 103, 400.00),
+(5, 'Coffee Maker', 104, 2500.00);
 
-### Phase 2: การตั้งค่าฝั่ง PLC (PLC Configuration)
+INSERT INTO Orders (order_id, customer_id, order_date, status) VALUES
+(1001, 1, '2024-02-10', 'completed'),
+(1002, 2, '2024-03-15', 'completed'),
+(1003, 1, '2024-04-20', 'completed'),
+(1004, 3, '2024-05-01', 'completed'),
+(1005, 2, '2024-06-12', 'completed'),
+(1006, 4, '2024-07-22', 'completed'),
+(1007, 1, '2025-01-05', 'completed'); -- Order นี้อยู่นอกปี 2024 เพื่อทดสอบการกรอง
 
-- [ ] **2.1 ตั้งค่า IP Address ให้กับ PLC**
-- [ ] **2.2 ตั้งค่า FINS Node Address**
-- [ ] **2.3 ตรวจสอบการเชื่อมต่อ (Ping Test)**
+INSERT INTO Order_Items (order_id, product_id, quantity, price_per_unit) VALUES
+(1001, 1, 1, 35000.00), -- Somchai, Electronics: 35000
+(1001, 3, 2, 750.00),   -- Somchai, Books: 1500
+(1002, 2, 1, 22000.00), -- Somsri, Electronics: 22000
+(1002, 4, 5, 400.00),   -- Somsri, Clothing: 2000
+(1003, 4, 10, 400.00),  -- Somchai, Clothing: 4000
+(1004, 5, 1, 2500.00),   -- Mana, Home & Kitchen: 2500
+(1005, 1, 1, 35000.00), -- Somsri, Electronics: 35000
+(1006, 3, 3, 750.00);   -- Malee, Books: 2250
 
----
+-- ปรับค่า sequence ของ SERIAL ให้ถูกต้องหลังจาก manual insert
+-- (เป็น good practice แต่ไม่จำเป็นเสมอไปถ้า insert ปกติ)
+SELECT setval('customers_customer_id_seq', (SELECT MAX(customer_id) FROM Customers));
+SELECT setval('order_items_order_item_id_seq', (SELECT MAX(order_item_id) FROM Order_Items));
 
-### Phase 3: การตั้งค่า Environment สำหรับเขียนโปรแกรม (Development Setup)
 
-- [ ] **3.1 ติดตั้งภาษาโปรแกรมและ IDE ที่เลือก**
-- [ ] **3.2 ติดตั้ง Library สำหรับ FINS Protocol**
-- [ ] **3.3 ติดตั้ง Library สำหรับเชื่อมต่อ Database:**
-  - [ ] **สำหรับ Python:** `pip install sqlite3`, `pip install mysql-connector-python`, `pip install psycopg2`
-- [ ] **3.4 สร้างโปรเจกต์ใหม่**
+-- ========= Section 3: CREATE INDEXES =========
+-- สร้าง Index บน Foreign Keys และคอลัมน์ที่ใช้บ่อยในการค้นหา/JOIN เพื่อเพิ่มความเร็ว
+CREATE INDEX idx_products_category_id ON Products(category_id);
+CREATE INDEX idx_orders_customer_id ON Orders(customer_id);
+CREATE INDEX idx_orders_order_date ON Orders(order_date); -- สำคัญมากสำหรับ WHERE clause
+CREATE INDEX idx_order_items_order_id ON Order_Items(order_id);
+CREATE INDEX idx_order_items_product_id ON Order_Items(product_id);
 
----
 
-### Phase 4: การเขียนโค้ด (Implementation)
-
-- [ ] **4.1 ส่วนของการเชื่อมต่อ (PLC Connection)**
-- [ ] **4.2 ส่วนของการอ่านข้อมูล (Data Reading)**
-- [ ] **4.3 ส่วนของการแปลงและจัดการข้อมูล (Data Handling)**
-- [ ] **4.4 ส่วนของ Loop การทำงานหลัก**
-- [ ] **4.5 (ปรับปรุง) ส่วนของการแสดงผลและส่งต่อข้อมูล:**
-  - [ ] แสดงผลค่าที่อ่านได้ทาง Console (เพื่อการดีบัก)
-  - [ ] **เรียกใช้ฟังก์ชันสำหรับบันทึกข้อมูลลง Database**
-
----
-
-### Phase 5: การทดสอบและดีบัก (Testing & Debugging)
-
-- [ ] **5.1 ทดสอบการเชื่อมต่อ PLC**
-- [ ] **5.2 ทดสอบการอ่านค่าจาก PLC**
-- [ ] **5.3 ดีบักเมื่อเกิดปัญหา (การสื่อสาร, การอ่านค่า)**
-
----
-
-### Phase 6: การทำให้สมบูรณ์และนำไปใช้งาน (Refinement & Deployment)
-
-- [ ] **6.1 ปรับปรุงโค้ด (Refactoring)**
-- [ ] **6.2 สร้างหน้าจอแสดงผล (GUI - Optional)**
-- [ ] **6.3 สร้างเป็นไฟล์ Executable**
-- [ ] **6.4 จัดทำเอกสาร (Documentation)**
-
----
-
-### Phase 7: การเชื่อมต่อและบันทึกข้อมูลลงฐานข้อมูล (Database Integration)
-
-- [ ] **7.1 ออกแบบและสร้างตาราง (Create Table):**
-  - [ ] เปิดโปรแกรม Database Management Tool
-  - [ ] สร้าง Database ใหม่ (ถ้ายังไม่มี)
-  - [ ] เขียน SQL Script เพื่อสร้างตารางตามที่ออกแบบไว้ในข้อ 1.1
-  - [ ] *ตัวอย่าง:* สร้างตารางชื่อ `plc_data` ที่มี columns: `id` (Primary Key, Auto Increment), `timestamp` (เก็บเวลาที่บันทึก), `temperature` (FLOAT), `motor_status` (BOOLEAN), `production_count` (INTEGER)
-
-- [ ] **7.2 เขียนโค้ดส่วนเชื่อมต่อ Database:**
-  - [ ] Import library ของ Database ที่ติดตั้งไว้
-  - [ ] เขียนฟังก์ชันสำหรับสร้างการเชื่อมต่อ (Connection) ไปยัง Database
-  - [ ] ใส่ค่า Connection String ให้ถูกต้อง (เช่น ที่อยู่ server, ชื่อผู้ใช้, รหัสผ่าน, ชื่อฐานข้อมูล)
-
-- [ ] **7.3 เขียนโค้ดส่วนบันทึกข้อมูล (Insert Data):**
-  - [ ] สร้างฟังก์ชันที่รับค่าข้อมูลที่อ่านจาก PLC มาเป็นพารามิเตอร์
-  - [ ] เขียนคำสั่ง SQL `INSERT INTO` เพื่อเพิ่มข้อมูลลงในตาราง
-  - [ ] ใช้ **Parameterized Queries** เพื่อป้องกัน SQL Injection และเพิ่มความปลอดภัย
-  - [ ] จัดการปิด Connection หรือ Cursor ให้เรียบร้อยหลังทำงานเสร็จ
-
-- [ ] **7.4 นำไปรวมกับ Loop การทำงานหลัก:**
-  - [ ] ใน Loop หลักของโปรแกรม (Phase 4.4), หลังจากอ่านและแปลงข้อมูลจาก PLC สำเร็จแล้ว
-  - [ ] ให้เรียกใช้ฟังก์ชันบันทึกข้อมูลลง Database (จากข้อ 7.3)
-  - [ ] เพิ่มการจัดการ Error (Exception Handling) สำหรับกรณีที่บันทึกข้อมูลลง Database ไม่สำเร็จ
-
-- [ ] **7.5 ทดสอบการทำงานของ Database:**
-  - [ ] รันโปรแกรมทั้งหมด
-  - [ ] เปิด Database Management Tool ขึ้นมาดูข้อมูลในตาราง `plc_data`
-  - [ ] ตรวจสอบว่ามีข้อมูลใหม่เข้ามาเรื่อยๆ ตามความถี่ที่ตั้งไว้หรือไม่
-  - [ ] ตรวจสอบว่าข้อมูลที่บันทึกถูกต้องตรงกับที่อ่านได้จาก PLC หรือไม่
+-- ========= Section 4: THE HEAVY QUERY =========
+-- Query หลักสำหรับวิเคราะห์ข้อมูลตามโจทย์
+-- หาลูกค้า 3 อันดับแรกที่ใช้จ่ายสูงสุดในปี 2024 พร้อมหมวดหมู่สินค้าที่พวกเขาจ่ายมากที่สุด
+WITH
+  -- Step 1: คำนวณยอดขายของสินค้าแต่ละรายการ เฉพาะในปี 2024
+  SalesIn2024 AS (
+    SELECT
+      o.customer_id,
+      p.category_id,
+      oi.quantity * oi.price_per_unit AS total_item_price
+    FROM Order_Items AS oi
+    JOIN Orders AS o
+      ON oi.order_id = o.order_id
+    JOIN Products AS p
+      ON oi.product_id = p.product_id
+    WHERE
+      EXTRACT(YEAR FROM o.order_date) = 2024
+  ),
+  -- Step 2: คำนวณยอดใช้จ่ายรวมของลูกค้าแต่ละคนในปี 2024
+  CustomerTotalSpending AS (
+    SELECT
+      customer_id,
+      SUM(total_item_price) AS total_spent_2024
+    FROM SalesIn2024
+    GROUP BY
+      customer_id
+  ),
+  -- Step 3: คำนวณยอดใช้จ่ายของลูกค้าแต่ละคนในแต่ละหมวดหมู่สินค้า
+  CategorySpendingPerCustomer AS (
+    SELECT
+      s.customer_id,
+      c.category_name,
+      SUM(s.total_item_price) AS category_spent
+    FROM SalesIn2024 AS s
+    JOIN Categories AS c
+      ON s.category_id = c.category_id
+    GROUP BY
+      s.customer_id,
+      c.category_name
+  ),
+  -- Step 4: จัดอันดับหมวดหมู่ที่ลูกค้าแต่ละคนใช้จ่ายสูงสุด โดยใช้ Window Function
+  RankedCategorySpending AS (
+    SELECT
+      customer_id,
+      category_name,
+      category_spent,
+      RANK() OVER (PARTITION BY customer_id ORDER BY category_spent DESC) AS category_rank
+    FROM CategorySpendingPerCustomer
+  )
+-- Step 5: ประกอบร่างข้อมูลทั้งหมดเพื่อหารายงานสุดท้าย
+SELECT
+  c.first_name,
+  c.last_name,
+  cts.total_spent_2024,
+  rcs.category_name AS top_category,
+  rcs.category_spent AS spent_in_top_category
+FROM RankedCategorySpending AS rcs
+JOIN CustomerTotalSpending AS cts
+  ON rcs.customer_id = cts.customer_id
+JOIN Customers AS c
+  ON rcs.customer_id = c.customer_id
+WHERE
+  rcs.category_rank = 1 -- เลือกเฉพาะหมวดหมู่อันดับ 1 ของแต่ละคน
+ORDER BY
+  cts.total_spent_2024 DESC -- เรียงตามยอดใช้จ่ายรวมสูงสุด
+LIMIT 3; -- เอาแค่ 3 อันดับแรก
